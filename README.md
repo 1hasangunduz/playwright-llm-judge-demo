@@ -1,12 +1,12 @@
 # playwright-llm-judge-demo
 
-Companion repo for the Medium article *"LLM-as-Judge: Testing Dynamic Search UIs with Playwright and GPT-4o."*
+Companion repo for the Medium article *"LLM-as-Judge: Testing Dynamic Search UIs with Playwright."*
 
-A minimal Playwright + OpenAI gpt-4o setup that grades a search-results page against a plain-English rubric and returns a structured verdict.
+A minimal Playwright + Gemini 2.5 setup that grades a search-results page against a plain-English rubric and returns a structured verdict.
 
 ```
    ┌─────────────┐    ┌──────────────────┐    ┌──────────────┐
-   │  Playwright │───▶│  hybrid context  │───▶│  gpt-4o      │
+   │  Playwright │───▶│  hybrid context  │───▶│  Gemini 2.5  │
    │  (browser)  │    │  screenshot+ARIA │    │  + rubric    │
    └─────────────┘    └──────────────────┘    └──────┬───────┘
                                                       │
@@ -22,13 +22,15 @@ A minimal Playwright + OpenAI gpt-4o setup that grades a search-results page aga
 ## Quickstart
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/1hasangunduz/playwright-llm-judge-demo.git
 cd playwright-llm-judge-demo
 npm install
 npx playwright install chromium
-cp .env.example .env       # then add your OPENAI_API_KEY
+cp .env.example .env       # then add your GEMINI_API_KEY
 npx playwright test
 ```
+
+> Need a key? Get a free one at [aistudio.google.com](https://aistudio.google.com/apikey). The free tier includes generous daily quota for `gemini-2.5-flash`.
 
 Expected output on a healthy page:
 
@@ -61,6 +63,14 @@ On a bad page you get a graded failure message:
 
 Use the local fixture if your CI runner is rate-limited, behind a corporate proxy, or you simply want a deterministic offline demo.
 
+## Why Gemini
+
+- **Free tier** covers casual local use of `gemini-2.5-flash` — no card required to start.
+- **Native multimodal**: a single call accepts the screenshot + text context with no extra adapter.
+- **Structured output** via `responseJsonSchema` returns guaranteed-valid JSON — the verdict is then re-validated with zod for defense in depth.
+
+To swap the model, set `GEMINI_MODEL` in `.env` (e.g. `gemini-2.5-pro` for harder visual judgments).
+
 ## A note on the live target
 
 The live demo points at Amazon's public search page. Amazon's Conditions of Use prohibit automated scraping at scale; this repo is intended for **educational use only**:
@@ -73,15 +83,15 @@ The local-fixture mode exists so the repo is fully runnable without ever touchin
 
 ## Cost
 
-Each judge call is a single gpt-4o request with one image (1024×768) plus an aria-snapshot. Expect roughly **$0.01–$0.03 per test** depending on page complexity. The repo logs token usage at the end of each run.
+Each judge call is a single `gemini-2.5-flash` request with one image (1280×800) plus an aria-snapshot — under **a fraction of a cent per test** on paid tier, free under quota. The repo logs token usage at the end of each run.
 
 ## Layout
 
 ```
 src/
-  judge.ts          OpenAI call + structured output
+  judge.ts          Gemini call + structured output
   rubric.ts         the search-results rubric
-  schema.ts         zod + JSON Schema for the verdict
+  schema.ts         zod schema for the verdict
   fixtures.ts       Playwright fixture + custom matcher
 
 tests/

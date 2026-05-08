@@ -1,8 +1,8 @@
 {
   "name": "playwright-llm-judge-demo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Companion repo for the Medium article: LLM-as-Judge with Playwright and GPT-4o",
+  "description": "Companion repo for the Medium article: LLM-as-Judge with Playwright and Gemini 2.5",
   "scripts": {
     "test": "playwright test",
     "test:local": "RUN_AGAINST_LOCAL=true playwright test",
@@ -14,8 +14,8 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
+    "@google/genai": "^1.52.0",
     "dotenv": "^16.4.5",
-    "openai": "^4.68.0",
     "zod": "^3.23.8"
   }
 }
