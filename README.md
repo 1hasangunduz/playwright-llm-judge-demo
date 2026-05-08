@@ -59,9 +59,14 @@ On a bad page you get a graded failure message:
 | Mode | Command | What it tests |
 |---|---|---|
 | Live (default) | `npx playwright test` | Hits `amazon.com/s?k=...` |
-| Local fixture | `RUN_AGAINST_LOCAL=true npx playwright test` | Hits a checked-in HTML page in `fixtures/search-local.html` |
+| Local fixtures | `RUN_AGAINST_LOCAL=true npx playwright test` | Runs both `search-good.html` (expected pass) and `search-broken.html` (expected fail) |
 
-Use the local fixture if your CI runner is rate-limited, behind a corporate proxy, or you simply want a deterministic offline demo.
+The local mode runs **two** scenarios so you see the judge from both sides:
+
+- ✅ **`search-good.html`** has product images, prices, ratings, and active filters. The judge should return `verdict: pass`.
+- ❌ **`search-broken.html`** ships with `Photo` placeholders instead of images. The judge should return `verdict: fail` and cite rule #3 (missing image). The test asserts this with `expect(page).not.toBeJudgedRelevant(...)`.
+
+Use local mode if your CI runner is rate-limited, behind a corporate proxy, or you simply want a deterministic offline demo.
 
 ## Why Gemini
 
@@ -98,7 +103,8 @@ tests/
   search.spec.ts    the demo test
 
 fixtures/
-  search-local.html offline demo target
+  search-good.html    healthy demo page (expected pass)
+  search-broken.html  contrived bad page (expected fail)
 ```
 
 ## Extending it
