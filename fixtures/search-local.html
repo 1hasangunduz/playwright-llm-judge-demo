@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Search results — red running shoes size 42</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #fff; color: #111; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #eee; }
+  header input { flex: 1; padding: 8px 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+  main { display: grid; grid-template-columns: 220px 1fr; gap: 24px; padding: 24px; }
+  aside h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-top: 24px; }
+  aside ul { list-style: none; padding: 0; margin: 8px 0; }
+  aside li { padding: 4px 0; font-size: 14px; }
+  aside li.active { font-weight: 700; color: #b32424; }
+  .results { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card { border: 1px solid #eee; border-radius: 8px; padding: 12px; }
+  .thumb { background: linear-gradient(135deg, #c1272d, #7d161a); height: 140px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; }
+  .card h3 { font-size: 14px; margin: 8px 0 4px; }
+  .card .price { font-weight: 700; color: #111; }
+  .card .meta { font-size: 12px; color: #666; }
+  .toolbar { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px; color: #555; }
+</style>
+</head>
+<body>
+<header>
+  <strong>shop</strong>
+  <input value="red running shoes size 42" aria-label="Search" />
+</header>
+
+<main>
+  <aside>
+    <h2>Color</h2>
+    <ul>
+      <li class="active">Red ✓</li>
+      <li>Black</li>
+      <li>White</li>
+      <li>Blue</li>
+    </ul>
+    <h2>Size</h2>
+    <ul>
+      <li class="active">42 ✓</li>
+      <li>41</li>
+      <li>43</li>
+      <li>44</li>
+    </ul>
+    <h2>Brand</h2>
+    <ul>
+      <li>Nike</li>
+      <li>Adidas</li>
+      <li>Asics</li>
+      <li>New Balance</li>
+    </ul>
+  </aside>
+
+  <section>
+    <div class="toolbar">
+      <span>16 results for "red running shoes size 42"</span>
+      <span>Sort: Relevance</span>
+    </div>
+    <div class="results">
+      <article class="card"><div class="thumb">Photo</div><h3>Nike Pegasus 41 — Red, Size 42</h3><div class="price">$129.99</div><div class="meta">Free shipping</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>Adidas Adizero Boston — Red, Size 42</h3><div class="price">$159.00</div><div class="meta">In stock</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>Asics Gel-Nimbus 26 — Crimson, Size 42</h3><div class="price">$149.95</div><div class="meta">2 left</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>Hoka Clifton 9 — Cherry Red, Size 42</h3><div class="price">$144.99</div><div class="meta">Free returns</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>New Balance 1080v13 — Red, Size 42</h3><div class="price">$164.99</div><div class="meta">Free shipping</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>Saucony Endorphin Speed — Red, Size 42</h3><div class="price">$169.00</div><div class="meta">Bestseller</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>Brooks Ghost 16 — Burgundy, Size 42</h3><div class="price">$139.95</div><div class="meta">In stock</div></article>
+      <article class="card"><div class="thumb">Photo</div><h3>On Cloudsurfer — Red Rust, Size 42</h3><div class="price">$159.99</div><div class="meta">Free shipping</div></article>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly run against the live target — set OPENAI_API_KEY as a repo secret.
+    - cron: '0 3 * * *'
+
+jobs:
+  typecheck-and-local-judge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+
+      # The judge call needs a real key. PRs from forks won't have it; we skip
+      # the test in that case so contributors can still get a typecheck signal.
+      - name: Run judge against local fixture
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RUN_AGAINST_LOCAL: 'true'
+        run: npm test
