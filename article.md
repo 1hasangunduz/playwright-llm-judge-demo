@@ -22,7 +22,7 @@ Dynamic UIs break our assertion vocabulary in three ways:
 2. **Visual diff churns daily.** Search results legitimately change. Pixel diffs become a baseline-update treadmill.
 3. **Snapshots rotate.** Personalization, A/B tests, inventory shifts — your "stable" snapshot is a lie within a week.
 
-What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern, and this article shows how to wire one into Playwright with about 200 lines of TypeScript — using **Gemini 2.5 Flash**, which has a generous free tier so you can run the whole demo without a credit card.
+What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern, and this article shows how to wire one into Playwright in **under 150 lines of TypeScript** — using **Gemini 2.5 Flash**, which has a generous free tier so you can run the whole demo without a credit card.
 
 A companion repo with a runnable test is linked at the end.
 
@@ -73,6 +73,8 @@ npm i -D @playwright/test
 npm i @google/genai zod dotenv
 ```
 
+`dotenv` lets the SDK pick up `GEMINI_API_KEY` from a local `.env` — Playwright's config calls `dotenv.config()` at startup, so the key is loaded before any test runs.
+
 Repo skeleton:
 
 ```
@@ -96,6 +98,7 @@ A small helper grabs the two artifacts in one call:
 ```ts
 // src/fixtures.ts
 import { Page } from '@playwright/test'
+import type { JudgeContext } from './judge' // declared in §3.4 — { url, ariaSnapshot, screenshot }
 
 export async function captureJudgeContext(page: Page): Promise<JudgeContext> {
   return {
@@ -153,11 +156,25 @@ We declare the equivalent JSON schema inline when calling Gemini — the SDK enf
 import { GoogleGenAI, Type } from '@google/genai'
 import { Verdict } from './schema'
 
-const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+export interface JudgeContext {
+  url: string
+  ariaSnapshot: string
+  screenshot: string  // base64-encoded PNG
+}
+
+let client: GoogleGenAI | null = null
+const getClient = (): GoogleGenAI => {
+  if (!client) {
+    const key = process.env.GEMINI_API_KEY
+    if (!key) throw new Error('GEMINI_API_KEY required')
+    client = new GoogleGenAI({ apiKey: key })
+  }
+  return client
+}
 const MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
 
 export async function judge(rubric: string, ctx: JudgeContext): Promise<Verdict> {
-  const response = await client.models.generateContent({
+  const response = await getClient().models.generateContent({
     model: MODEL,
     contents: [
       {
@@ -192,10 +209,11 @@ export async function judge(rubric: string, ctx: JudgeContext): Promise<Verdict>
 
 A few details worth flagging:
 
-- **`systemInstruction`** carries the rubric. It is treated as the model's persona for the call and stays out of the user-content stream.
-- **`temperature: 0`** gets us as deterministic as the API allows. Gemini 2.5 Flash already runs with low variance at temperature zero.
+- **Lazy client init.** Constructing `GoogleGenAI` at module-load time fails if `GEMINI_API_KEY` is unset — a confusing crash before any test runs. The `getClient()` thunk defers that until the first call, so type-checking and unrelated tests stay green.
+- **`systemInstruction`** carries the rubric. It biases the model's behavior for the entire call without occupying a slot in the user-content stream.
+- **`temperature: 0`** gets us as close to deterministic as the API allows.
 - **`inlineData`** wraps the base64 screenshot. Unlike OpenAI's `image_url`, Gemini wants raw base64 plus a mime type — no `data:` URL wrapping.
-- **`responseJsonSchema`** is enforced server-side. We still parse with zod at the boundary because the model can hand back a `pass` verdict with a `score` outside `[0, 1]`, and we'd rather catch that here than during a flaky CI failure investigation at midnight.
+- **`responseJsonSchema`** is enforced server-side, but it enforces *shape*, not *semantics*. Zod tightens the contract: `score ∈ [0, 1]`, `issues` capped at 10, `rationale` capped at 800 chars. Catch the mismatch here, not during a midnight CI investigation.
 
 ### 3.5 A custom Playwright matcher
 
@@ -273,7 +291,8 @@ Issues:
  - The first result "Nike Pegasus 41 — Red, Size 42" displays a 'Photo'
    placeholder instead of an actual product image.
  - All visible product results display 'Photo' placeholders.
-Rationale: Breaks rule #3 (first result must not have a missing image).
+
+Breaks rule #3 (first result must not have a missing image).
 ```
 
 That is the report you wanted at 3 AM.
@@ -288,8 +307,6 @@ A judge in CI is not a science experiment. Four levers keep it honest:
 - **Cost.** A hybrid call against `gemini-2.5-flash` at 1280×800 typically lands around 2,000–2,500 tokens — well under **a fraction of a cent per test** on paid tier, and free under quota. The free tier on AI Studio gives you 1,500 requests per day on flash, which is more than enough for personal projects and small CI loops. Cap image dimensions at the smallest size your rubric still works on. Most teams do not need a judge on every PR run.
 - **CI caching.** Hash `(ariaSnapshot + downscaled screenshot)`. If the hash matches a previous green verdict, skip the call. Page genuinely changed → judge runs. Most search-results pages drift slowly enough that hit rates of 40–60% are realistic.
 - **Privacy.** Never ship logged-in user data, real emails, or order IDs to the model. Mask before screenshot capture using Playwright's `page.evaluate()` to hide PII selectors, or run the judge only against guest sessions.
-
-Trendyol's mobile team [reports 96.6% release stability with AI-driven UI testing at 10,400 tests](https://medium.com/trendyol-tech/scaling-mobile-ui-testing-with-ai-02b78bc50a5e). A judge layer composes naturally on top of that scale — generation gets you the test; the judge tells you whether the page under test is actually good.
 
 ---
 
