@@ -1,4 +1,4 @@
-# LLM-as-Judge: Testing Dynamic Search UIs with Playwright and GPT-4o
+# LLM-as-Judge: Testing Dynamic Search UIs with Playwright and Gemini 2.5
 
 *Why `expect(results).toHaveCount(20)` is lying to you, and what to do about it.*
 
@@ -22,7 +22,7 @@ Dynamic UIs break our assertion vocabulary in three ways:
 2. **Visual diff churns daily.** Search results legitimately change. Pixel diffs become a baseline-update treadmill.
 3. **Snapshots rotate.** Personalization, A/B tests, inventory shifts — your "stable" snapshot is a lie within a week.
 
-What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern, and this article shows how to wire one into Playwright with about 200 lines of TypeScript.
+What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern, and this article shows how to wire one into Playwright with about 200 lines of TypeScript — using **Gemini 2.5 Flash**, which has a generous free tier so you can run the whole demo without a credit card.
 
 A companion repo with a runnable test is linked at the end.
 
@@ -57,14 +57,20 @@ Trendyol's mobile testing team [recently scaled from 4,869 to 10,400 UI tests in
 We need three ingredients:
 
 - **Playwright** — captures both a screenshot and an `aria-snapshot` of the rendered page.
-- **OpenAI gpt-4o** — accepts vision input and supports structured outputs via JSON Schema.
+- **Gemini 2.5 Flash** — accepts vision input natively and supports structured JSON output via `responseJsonSchema`.
 - **A hybrid input** — we send both the screenshot *and* the aria-snapshot to the model.
 
 Why hybrid? A screenshot alone catches visual regressions but burns tokens and misses semantic intent. An aria-snapshot alone is cheap and deterministic but ignores layout, typography, and broken images. Combined, the two signals reinforce each other: the model resolves visual ambiguity using the semantic tree, and reads the tree against the screenshot's actual rendering.
 
+Why Gemini specifically? Three reasons:
+
+- **Free tier**: `gemini-2.5-flash` covers casual local development without a credit card. Get a key at [aistudio.google.com](https://aistudio.google.com/apikey).
+- **Native multimodal**: a single call accepts screenshot + text — no separate vision adapter, no manual base64 wrapping in a `data:` URL.
+- **`responseJsonSchema` is enforced server-side**. The SDK guarantees valid JSON; we still re-validate with zod for defense in depth.
+
 ```bash
 npm i -D @playwright/test
-npm i openai zod dotenv
+npm i @google/genai zod dotenv
 ```
 
 Repo skeleton:
@@ -72,9 +78,9 @@ Repo skeleton:
 ```
 playwright-llm-judge-demo/
 ├── src/
-│   ├── judge.ts          # the OpenAI call
+│   ├── judge.ts          # the Gemini call
 │   ├── rubric.ts         # default search-results rubric
-│   ├── schema.ts         # zod + JSON Schema
+│   ├── schema.ts         # zod schema for the verdict
 │   └── fixtures.ts       # captureJudgeContext + custom matcher
 └── tests/search.spec.ts  # the demo test
 ```
@@ -138,43 +144,58 @@ export const Verdict = z.object({
 export type Verdict = z.infer<typeof Verdict>
 ```
 
-We pass the equivalent JSON Schema to OpenAI so the model is forced into shape.
+We declare the equivalent JSON schema inline when calling Gemini — the SDK enforces it server-side, and zod re-validates on the way out so a malformed response fails loud.
 
 ### 3.4 The `judge()` function
 
 ```ts
 // src/judge.ts
-import OpenAI from 'openai'
+import { GoogleGenAI, Type } from '@google/genai'
 import { Verdict } from './schema'
 
-const client = new OpenAI()
+const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+const MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
 
 export async function judge(rubric: string, ctx: JudgeContext): Promise<Verdict> {
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0,
-    seed: 42,
-    response_format: {
-      type: 'json_schema',
-      json_schema: { name: 'verdict', schema: VerdictJsonSchema, strict: true },
-    },
-    messages: [
-      { role: 'system', content: rubric },
+  const response = await client.models.generateContent({
+    model: MODEL,
+    contents: [
       {
         role: 'user',
-        content: [
-          { type: 'text', text: `Page URL: ${ctx.url}\n\nAccessibility tree:\n${ctx.ariaSnapshot}` },
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${ctx.screenshot}` } },
+        parts: [
+          { text: `Page URL: ${ctx.url}\n\nAccessibility tree:\n${ctx.ariaSnapshot}` },
+          { inlineData: { mimeType: 'image/png', data: ctx.screenshot } },
         ],
       },
     ],
+    config: {
+      systemInstruction: rubric,
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseJsonSchema: {
+        type: Type.OBJECT,
+        properties: {
+          verdict: { type: Type.STRING, enum: ['pass', 'fail', 'warn'] },
+          score: { type: Type.NUMBER },
+          issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+          rationale: { type: Type.STRING },
+        },
+        required: ['verdict', 'score', 'issues', 'rationale'],
+        propertyOrdering: ['verdict', 'score', 'issues', 'rationale'],
+      },
+    },
   })
-  const raw = JSON.parse(response.choices[0].message.content!)
-  return Verdict.parse(raw)   // double-check at the boundary
+
+  return Verdict.parse(JSON.parse(response.text!))
 }
 ```
 
-`temperature: 0` plus a fixed `seed` gets us as deterministic as the API allows. Zod parses on the way out so a malformed response fails loud.
+A few details worth flagging:
+
+- **`systemInstruction`** carries the rubric. It is treated as the model's persona for the call and stays out of the user-content stream.
+- **`temperature: 0`** gets us as deterministic as the API allows. Gemini 2.5 Flash already runs with low variance at temperature zero.
+- **`inlineData`** wraps the base64 screenshot. Unlike OpenAI's `image_url`, Gemini wants raw base64 plus a mime type — no `data:` URL wrapping.
+- **`responseJsonSchema`** is enforced server-side. We still parse with zod at the boundary because the model can hand back a `pass` verdict with a `score` outside `[0, 1]`, and we'd rather catch that here than during a flaky CI failure investigation at midnight.
 
 ### 3.5 A custom Playwright matcher
 
@@ -199,27 +220,60 @@ export const expect = baseExpect.extend({
 })
 ```
 
-### 3.6 The demo test
+The matcher returns `pass: verdict.verdict === 'pass'`, which means Playwright's `.not` modifier inverts cleanly — useful in a moment.
+
+### 3.6 The demo tests
+
+A judge demo that only shows green is half a demo. The companion repo runs three scenarios:
 
 ```ts
 // tests/search.spec.ts
+import * as path from 'path'
 import { test, expect } from '../src/fixtures'
 
-test('search results are relevant for "red running shoes size 42"', async ({ page }) => {
-  await page.goto('https://www.amazon.com/s?k=red+running+shoes+size+42')
-  await page.waitForLoadState('networkidle')
-  await expect(page).toBeJudgedRelevant('red running shoes size 42')
+const QUERY = 'red running shoes size 42'
+const liveUrl = `https://www.amazon.com/s?k=${encodeURIComponent(QUERY)}`
+const goodUrl = `file://${path.resolve(__dirname, '../fixtures/search-good.html')}`
+const brokenUrl = `file://${path.resolve(__dirname, '../fixtures/search-broken.html')}`
+
+const runLocal = process.env.RUN_AGAINST_LOCAL === 'true'
+
+test.describe('search results judge', () => {
+  test('passes a healthy results page', async ({ page }) => {
+    test.skip(!runLocal, 'set RUN_AGAINST_LOCAL=true')
+    await page.goto(goodUrl, { waitUntil: 'domcontentloaded' })
+    await expect(page).toBeJudgedRelevant(QUERY)
+  })
+
+  test('catches a broken results page', async ({ page }) => {
+    test.skip(!runLocal, 'set RUN_AGAINST_LOCAL=true')
+    await page.goto(brokenUrl, { waitUntil: 'domcontentloaded' })
+    await expect(page).not.toBeJudgedRelevant(QUERY)
+  })
+
+  test('judges the live target', async ({ page }) => {
+    test.skip(runLocal, 'unset RUN_AGAINST_LOCAL to hit the live target')
+    await page.goto(liveUrl, { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {})
+    await expect(page).toBeJudgedRelevant(QUERY)
+  })
 })
 ```
 
-When this passes, the failure message is empty. When it fails, you get something a human can act on:
+Two local fixtures, intentionally written to push the judge in opposite directions:
+
+- `search-good.html` ships product images, prices, ratings, and active filters — the judge should return `pass`.
+- `search-broken.html` ships placeholder thumbnails reading the literal word "Photo" — the judge should call this out, citing rule #3 (missing image), and the test asserts that with `expect(page).not.toBeJudgedRelevant(...)`.
+
+When the broken page runs, the failure message is something a human can act on:
 
 ```
-Judge verdict: fail (score 0.34)
+Judge verdict: fail (score 0.50)
 Issues:
- - Top 3 results are white sneakers, not red.
- - Color filter exists but query color was not pre-applied.
-Rationale: 7 of the 16 visible products are red, but the ranking surfaces non-red items first…
+ - The first result "Nike Pegasus 41 — Red, Size 42" displays a 'Photo'
+   placeholder instead of an actual product image.
+ - All visible product results display 'Photo' placeholders.
+Rationale: Breaks rule #3 (first result must not have a missing image).
 ```
 
 That is the report you wanted at 3 AM.
@@ -230,8 +284,8 @@ That is the report you wanted at 3 AM.
 
 A judge in CI is not a science experiment. Four levers keep it honest:
 
-- **Determinism.** `temperature: 0` plus `seed` plus strict JSON Schema is the floor. Wrap the call in a one-shot retry that runs only on schema-parse errors — never on `fail` verdicts. Retrying failures hides regressions.
-- **Cost.** A hybrid call against gpt-4o costs roughly **$0.01–$0.03 per test** at full-page screenshot resolution. Cap image dimensions at 1024×768. Sample: run the judge on every PR for the top 20 user journeys, and nightly for the full suite. Most teams do not need a judge on every PR run.
+- **Determinism.** `temperature: 0` plus a server-enforced JSON schema is the floor. Wrap the call in a one-shot retry that runs only on schema-parse errors — never on `fail` verdicts. Retrying failures hides regressions.
+- **Cost.** A hybrid call against `gemini-2.5-flash` at 1280×800 typically lands around 2,000–2,500 tokens — well under **a fraction of a cent per test** on paid tier, and free under quota. The free tier on AI Studio gives you 1,500 requests per day on flash, which is more than enough for personal projects and small CI loops. Cap image dimensions at the smallest size your rubric still works on. Most teams do not need a judge on every PR run.
 - **CI caching.** Hash `(ariaSnapshot + downscaled screenshot)`. If the hash matches a previous green verdict, skip the call. Page genuinely changed → judge runs. Most search-results pages drift slowly enough that hit rates of 40–60% are realistic.
 - **Privacy.** Never ship logged-in user data, real emails, or order IDs to the model. Mask before screenshot capture using Playwright's `page.evaluate()` to hide PII selectors, or run the judge only against guest sessions.
 
@@ -244,8 +298,8 @@ Trendyol's mobile team [reports 96.6% release stability with AI-driven UI testin
 A judge is one tool, not a strategy. Three honest caveats:
 
 - It is **not a replacement** for unit tests, integration tests, or accessibility scanners. Use it where heuristics beat hard assertions, not where hard assertions already work.
-- The model has **opinions** baked in. gpt-4o has its own theory of "good UX," and it will project that onto your interface. Calibrate the rubric against examples your team agrees on.
-- For high-stakes flows, run a **multi-judge consensus** — three calls with different seeds, majority vote. Disagreement is itself a signal worth reviewing.
+- The model has **opinions** baked in. Gemini has its own theory of "good UX" and will project that onto your interface. Calibrate the rubric against examples your team agrees on, and consider running the same fixture through `gemini-2.5-pro` and `gemini-2.5-flash` periodically to catch verdict drift between model versions.
+- For high-stakes flows, run a **multi-judge consensus** — multiple calls (or multiple models) and a majority vote. Disagreement is itself a signal worth reviewing.
 
 The horizon is agentic. Trendyol explicitly mentions [experimental agentic approaches for automated change analysis](https://medium.com/trendyol-tech/scaling-mobile-ui-testing-with-ai-02b78bc50a5e) — agents that observe a failure, hypothesize a cause, mutate locators, and re-run. The judge is the eyes of that agent. Get the judge right first; the agent will ride on top of it.
 
@@ -253,7 +307,16 @@ The horizon is agentic. Trendyol explicitly mentions [experimental agentic appro
 
 ## Try it
 
-Companion repo: **[github.com/your-handle/playwright-llm-judge-demo](https://github.com/your-handle/playwright-llm-judge-demo)** — clone, drop your `OPENAI_API_KEY` into `.env`, run `npx playwright test`. A `RUN_AGAINST_LOCAL=true` flag points the test at a checked-in static fixture if you cannot hit Amazon from your CI runner.
+Companion repo: **[github.com/1hasangunduz/playwright-llm-judge-demo](https://github.com/1hasangunduz/playwright-llm-judge-demo)** — clone it, drop your `GEMINI_API_KEY` into `.env`, then:
+
+```bash
+npm install
+npx playwright install chromium
+RUN_AGAINST_LOCAL=true npx playwright test   # runs both good + broken locally
+npx playwright test                          # judges the live Amazon target
+```
+
+Free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — no card needed.
 
 What dynamic surface in your product could a judge unblock this quarter?
 
@@ -264,7 +327,8 @@ What dynamic surface in your product could a judge unblock this quarter?
 - Trendyol Tech — [Advanced Maestro Testing: Event Validation & AI-Powered Test Generation](https://medium.com/trendyol-tech/advanced-maestro-testing-event-validation-ai-powered-test-generation-0bb86f3ca481)
 - Trendyol Tech — [Scaling Mobile UI Testing with AI](https://medium.com/trendyol-tech/scaling-mobile-ui-testing-with-ai-02b78bc50a5e)
 - Trendyol Tech — [Test Automation Structure for Single Code Base Projects](https://medium.com/trendyol-tech/test-automation-structure-for-single-code-base-projects-58d8fb1f7250)
-- OpenAI — [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
+- Google AI — [Structured Output with the Gemini API](https://ai.google.dev/gemini-api/docs/structured-output)
+- Google AI — [Vision capabilities of Gemini](https://ai.google.dev/gemini-api/docs/vision)
 - Playwright — [`ariaSnapshot`](https://playwright.dev/docs/api/class-locator#locator-aria-snapshot)
 
 ---
