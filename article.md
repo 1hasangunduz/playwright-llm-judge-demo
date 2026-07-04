@@ -1,4 +1,4 @@
-# LLM-as-Judge: Testing Dynamic Search UIs with Playwright and Gemini 2.5
+# Green CI, Broken UI: an LLM-as-Judge for Playwright + Gemini 2.5
 
 *Why `expect(results).toHaveCount(20)` is lying to you, and what to do about it.*
 
@@ -313,7 +313,7 @@ That is the report you wanted at 3 AM.
 A judge in CI is not a science experiment. Four levers keep it honest:
 
 - **Determinism.** `temperature: 0` plus a server-enforced JSON schema is the floor. Wrap the call in a one-shot retry that runs only on schema-parse errors — never on `fail` verdicts. Retrying failures hides regressions.
-- **Cost.** A hybrid call at 1280×800 lands around 2,000–2,500 tokens — a fraction of a cent on paid tier, and the free tier's 1,500 flash requests/day covers small CI loops. Cap image dimensions at the smallest size your rubric still works on, and don't run a judge on every PR.
+- **Cost.** A hybrid call against a controlled fixture at 1280×800 lands around 2,000–2,500 tokens — a fraction of a cent on paid tier, and the free tier's 1,500 flash requests/day covers small CI loops. But watch the aria-snapshot: judging a real, content-heavy page (a live Amazon results grid) measured at **~76,000 tokens — roughly 30× the fixture** — because the accessibility tree of a full production DOM is enormous, not because the screenshot grew. The dominant cost lever is snapshot size, not image dimensions. Scope `ariaSnapshot()` to the results container (`page.locator('#search')`) instead of the whole `body`, cap image dimensions at the smallest size your rubric still works on, and don't run a judge on every PR.
 - **CI caching.** Hash `(ariaSnapshot + downscaled screenshot)`. If the hash matches a previous green verdict, skip the call. Page genuinely changed → judge runs. Most search-results pages drift slowly enough that hit rates of 40–60% are realistic.
 - **Privacy.** Never ship logged-in user data, real emails, or order IDs to the model. Mask before screenshot capture using Playwright's `page.evaluate()` to hide PII selectors, or run the judge only against guest sessions.
 
