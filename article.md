@@ -22,17 +22,13 @@ Dynamic UIs break our assertion vocabulary in three ways:
 2. **Visual diff churns daily.** Search results legitimately change. Pixel diffs become a baseline-update treadmill.
 3. **Snapshots rotate.** Personalization, A/B tests, inventory shifts — your "stable" snapshot is a lie within a week.
 
-What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern, and this article shows how to wire one into Playwright in **under 150 lines of TypeScript** — using **Gemini 2.5 Flash**, which has a generous free tier so you can run the whole demo without a credit card.
-
-A companion repo with a runnable test is linked at the end.
+What if a test could *read* the page the way a thoughtful PM does, return a graded verdict, and explain itself? That is the LLM-as-Judge pattern. This article wires one into Playwright in **under 150 lines of TypeScript**, using **Gemini 2.5 Flash** (free tier, no credit card). Every snippet below is copy-paste runnable; the full repo is linked at the end.
 
 ---
 
 ## 1. The LLM-as-Judge pattern
 
-The pattern was born in model evaluation. In tools like the LMSYS Chatbot Arena, a strong model grades the answers of weaker models against a rubric — judging which answer is more helpful, factual, or coherent. The technique scales human evaluation work that would otherwise be impossible.
-
-Translate that into UI testing. Instead of asking the model "is answer A better than answer B," we ask it "given this rubric, is the page in front of you doing its job?" The judge is **graded, not absolute**. It returns:
+The pattern was born in model evaluation: a strong model grades weaker models' answers against a rubric, scaling human review that would otherwise be impossible. Translate that to UI testing — instead of "is answer A better than B," we ask "given this rubric, is the page in front of you doing its job?" The judge is **graded, not absolute**. It returns:
 
 - a `verdict` — `pass`, `fail`, or `warn`
 - a numeric `score` from 0 to 1
@@ -41,12 +37,19 @@ Translate that into UI testing. Instead of asking the model "is answer A better 
 
 The mental shift matters. A judge is **not an oracle.** It is probabilistic, occasionally wrong, and always opinionated. We use it where deterministic assertions cannot reach:
 
-| Use it for | Don't use it for |
-|---|---|
-| Dynamic content (search, recommendations, feeds) | Deterministic flows (login → dashboard) |
-| Vague acceptance criteria (*"results should be relevant"*) | Performance budgets |
-| Copy / UX quality | Pixel-perfect cross-browser checks |
-| Heuristic accessibility (alt text quality, scan order) | Strict WCAG compliance — use axe-core |
+**Use it for:**
+
+- Dynamic content — search, recommendations, feeds
+- Vague acceptance criteria (*"results should be relevant"*)
+- Copy / UX quality
+- Heuristic accessibility — alt-text quality, scan order
+
+**Don't use it for:**
+
+- Deterministic flows — login → dashboard
+- Performance budgets
+- Pixel-perfect cross-browser checks
+- Strict WCAG compliance — use axe-core instead
 
 Trendyol's mobile testing team [recently scaled from 4,869 to 10,400 UI tests in under a year](https://medium.com/trendyol-tech/scaling-mobile-ui-testing-with-ai-02b78bc50a5e) using AI to *generate* tests. The judge pattern is the natural complement on the *verification* side: AI that decides whether the UI it sees is acceptable, not just whether the test it ran did not throw.
 
@@ -283,6 +286,12 @@ Two local fixtures, intentionally written to push the judge in opposite directio
 - `search-good.html` ships product images, prices, ratings, and active filters — the judge should return `pass`.
 - `search-broken.html` ships placeholder thumbnails reading the literal word "Photo" — the judge should call this out, citing rule #3 (missing image), and the test asserts that with `expect(page).not.toBeJudgedRelevant(...)`.
 
+![Healthy search-results page: eight red running-shoe cards with product images, prices, ratings, and an active "Red" filter in the sidebar.](docs/search-good.png)
+*`search-good.html` — exactly what the judge sees on a healthy page. Verdict: `pass`.*
+
+![Broken search-results page: the same eight cards, but every thumbnail is a solid red box reading "Photo" instead of a product image, and the ratings are gone.](docs/search-broken.png)
+*`search-broken.html` — every thumbnail is a "Photo" placeholder. Verdict: `fail`, citing rule #3.*
+
 When the broken page runs, the failure message is something a human can act on:
 
 ```
@@ -304,7 +313,7 @@ That is the report you wanted at 3 AM.
 A judge in CI is not a science experiment. Four levers keep it honest:
 
 - **Determinism.** `temperature: 0` plus a server-enforced JSON schema is the floor. Wrap the call in a one-shot retry that runs only on schema-parse errors — never on `fail` verdicts. Retrying failures hides regressions.
-- **Cost.** A hybrid call against `gemini-2.5-flash` at 1280×800 typically lands around 2,000–2,500 tokens — well under **a fraction of a cent per test** on paid tier, and free under quota. The free tier on AI Studio gives you 1,500 requests per day on flash, which is more than enough for personal projects and small CI loops. Cap image dimensions at the smallest size your rubric still works on. Most teams do not need a judge on every PR run.
+- **Cost.** A hybrid call at 1280×800 lands around 2,000–2,500 tokens — a fraction of a cent on paid tier, and the free tier's 1,500 flash requests/day covers small CI loops. Cap image dimensions at the smallest size your rubric still works on, and don't run a judge on every PR.
 - **CI caching.** Hash `(ariaSnapshot + downscaled screenshot)`. If the hash matches a previous green verdict, skip the call. Page genuinely changed → judge runs. Most search-results pages drift slowly enough that hit rates of 40–60% are realistic.
 - **Privacy.** Never ship logged-in user data, real emails, or order IDs to the model. Mask before screenshot capture using Playwright's `page.evaluate()` to hide PII selectors, or run the judge only against guest sessions.
 
