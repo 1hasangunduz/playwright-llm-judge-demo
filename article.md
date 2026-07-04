@@ -316,6 +316,9 @@ Running the suite produces three outcomes worth separating:
 
 The first two are the controlled demo. The third runs against a page nobody on your team controls.
 
+![Test run results table: two controlled fixtures pass and the live Amazon page fails because the judge caught real relevance and price problems; the live call cost about 36x the fixture in tokens.](docs/test-report.png)
+*All three runs at a glance. The two green rows are the controlled demo; the red row is the judge catching real problems on a page nobody wrote.*
+
 The live test optimistically asserts `pass` against `amazon.com` — a page nobody on your team controls. On the run that produced this article, the judge disagreed:
 
 ```
