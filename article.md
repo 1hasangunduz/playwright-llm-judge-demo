@@ -1,4 +1,4 @@
-# LLM-as-Judge: Testing Dynamic Search UIs with Playwright and Gemini 2.5
+# Green CI, Broken UI: an LLM-as-Judge for Playwright + Gemini 2.5
 
 *Why `expect(results).toHaveCount(20)` is lying to you, and what to do about it.*
 
