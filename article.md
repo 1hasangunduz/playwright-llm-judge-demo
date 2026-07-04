@@ -306,6 +306,35 @@ Breaks rule #3 (first result must not have a missing image).
 
 That is the report you wanted at 3 AM.
 
+### 3.7 What a real run looks like
+
+Running the suite produces three outcomes worth separating:
+
+- **Healthy fixture** (`search-good.html`) → judge `pass`, ~2,100 tokens → test **passes**.
+- **Broken fixture** (`search-broken.html`) → judge `fail`, ~2,100 tokens → test **passes** via `.not` (the `"Photo"` placeholders are caught).
+- **Live Amazon** (`amazon.com`) → judge `fail`, ~76,000 tokens → test **fails** — and this is the interesting one.
+
+The first two are the controlled demo. The third runs against a page nobody on your team controls.
+
+The live test optimistically asserts `pass` against `amazon.com` — a page nobody on your team controls. On the run that produced this article, the judge disagreed:
+
+```
+Judge verdict: fail (score 0.50)
+Issues:
+ - Relevance: only 2 of the first 4 visible products clearly match
+   "red running shoes size 42" — #2 is a white tennis shoe, #3 a maroon
+   casual sneaker.
+ - Missing price: the first four results show "See options" instead of a
+   price, breaking rule #2.
+
+Less than 50% of visible products match the query, and the top results
+hide their price behind an extra click.
+```
+
+Here is the whole thesis of this article in one data point. A `toHaveCount(20)` assertion would have stayed **green** through this exact page — twenty list items were present. The judge read the *content* of those twenty items and found half of them off-query and price-less. The "failure" is not a flaky test; it is the judge catching, on a page we did not write, precisely what a counting assertion cannot see.
+
+One caveat the run surfaced: **cost**. The live call measured ~76,000 tokens against ~2,100 for the controlled fixture — 30× more, driven by the size of Amazon's accessibility tree, not the screenshot. That number sets up the first lever below.
+
 ---
 
 ## 4. Production realities
